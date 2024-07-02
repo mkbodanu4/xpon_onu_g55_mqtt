@@ -1,0 +1,12 @@
+[Unit]
+Description=Service for publishing XPON ONU G55 state to MQTT
+After=multi-user.target mosquitto.service
+
+[Service]
+WorkingDirectory=/home/user/xpon_onu_g55_mqtt
+Type=idle
+ExecStart=/usr/bin/python3 /home/user/xpon_onu_g55_mqtt/mqtt.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
