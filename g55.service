@@ -1,6 +1,7 @@
 [Unit]
 Description=Service for publishing XPON ONU G55 state to MQTT
-After=multi-user.target mosquitto.service
+Wants=network-online.target
+After=network.target network-online.target multi-user.target mosquitto.service NetworkManager.service
 
 [Service]
 WorkingDirectory=/home/user/xpon_onu_g55_mqtt
