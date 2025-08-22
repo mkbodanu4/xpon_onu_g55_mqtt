@@ -85,13 +85,26 @@ def publish_single(topic_value, payload):
         print(e)
 
 
+def session_request(method, url, data=None, error_message="Unknown error"):
+    try:
+        response = requests.request(method, url, data=data)
+
+        if response.status_code != 200:
+            publish_single(topic('parser_status/state'), error_message + " " + str(response.status_code))
+            print(method + " request to page " + url + " has status code " + str(response.status_code))
+            return False
+
+        return response
+    except Exception as e:
+        publish_single(topic('parser_status/state'), "Can't access to ONU via network: " + str(e))
+        return False
+
+
 def get_gpon_status_page():
     gpon_status_url = "http://" + configuration['onu']['ip'] + "/getpage.gch?pid=1002&nextpage=pon_status_link_info_t.gch"
 
-    response = session.request('GET', url=gpon_status_url)
-    if response.status_code != 200:
-        publish_single(topic('parser_status/state'), 'Status Page Error ' + str(response.status_code))
-        print("GET request to page " + gpon_status_url + " has status code " + str(response.status_code))
+    response = session_request('GET', url=gpon_status_url, error_message='Status Page Error')
+    if response == False:
         return False
 
     is_logged = re.compile(r'logout\_redirect\(\)\;')
@@ -106,10 +119,8 @@ def get_gpon_status_page():
 def get_gpon_alerts_page():
     gpon_alerts_url = "http://" + configuration['onu']['ip'] + "/getpage.gch?pid=1002&nextpage=epon_status_alarm_t.gch"
 
-    response = session.request('GET', url=gpon_alerts_url)
-    if response.status_code != 200:
-        publish_single(topic('parser_status/state'), 'Alerts Page Error ' + str(response.status_code))
-        print("GET request to page " + gpon_alerts_url + " has status code " + str(response.status_code))
+    response = session_request('GET', url=gpon_alerts_url, error_message="Alerts Page Error")
+    if response == False:
         return False
 
     return response.text
@@ -227,10 +238,8 @@ def authenticate():
     global auth_token
     login_form_url = "http://" + configuration['onu']['ip'] + "/"
 
-    login_form_response = session.request('GET', url=login_form_url)
-    if login_form_response.status_code != 200:
-        publish_single(topic('parser_status/state'), 'Authorization Error ' + str(login_form_response.status_code))
-        print("GET request to page " + login_form_url + " has status code " + str(login_form_response.status_code))
+    login_form_response = session_request('GET', url=login_form_url, error_message="Authorization Error")
+    if login_form_response == False:
         return False
 
     if not login_token_re.search(login_form_response.text):
@@ -247,17 +256,14 @@ def authenticate():
 
     auth_token = tokens[0]
 
-    login_request_response = session.request('POST', url=login_form_url, data={
+    login_request_response = session_request('POST', url=login_form_url, data={
         'frashnum': '',
         'action': 'login',
         'Frm_Logintoken': auth_token,
         'Username': configuration['onu']['username'],
         'Password': configuration['onu']['password'],
-    })
-
-    if login_request_response.status_code != 200:
-        publish_single(topic('parser_status/state'), 'Authorization Error ' + str(login_request_response.status_code))
-        print("POST request to page " + login_form_url + " has status code " + str(login_request_response.status_code))
+    }, error_message="Authorization Error")
+    if login_request_response == False:
         return False
 
     if not login_valid.search(login_request_response.text):
@@ -396,7 +402,6 @@ while True:
     sensors_data = []
 
     status_page_content = get_gpon_status_page()
-
     if not status_page_content:
         publish_single(topic('parser_status/state'), 'Authorizing')
         print("Authorizing")
@@ -412,67 +417,69 @@ while True:
             print("Can't authenticate")
             exit()
 
-    parse_gpon_status_page(status_page_content)
+    if status_page_content:
+        parse_gpon_status_page(status_page_content)
 
-    sensors_data.append({
-        'topic': topic('rx_power/state'),
-        'payload': str(rx_power_value)
-    })
-    sensors_data.append({
-        'topic': topic('tx_power/state'),
-        'payload': str(tx_power_value)
-    })
-    sensors_data.append({
-        'topic': topic('loid_state/state'),
-        'payload': str(loid_state_value)
-    })
-    sensors_data.append({
-        'topic': topic('supply_voltage/state'),
-        'payload': str(supply_voltage_value)
-    })
-    sensors_data.append({
-        'topic': topic('bias_current/state'),
-        'payload': str(bias_current_value)
-    })
-    sensors_data.append({
-        'topic': topic('temp/state'),
-        'payload': str(temp_value)
-    })
+        sensors_data.append({
+            'topic': topic('rx_power/state'),
+            'payload': str(rx_power_value)
+        })
+        sensors_data.append({
+            'topic': topic('tx_power/state'),
+            'payload': str(tx_power_value)
+        })
+        sensors_data.append({
+            'topic': topic('loid_state/state'),
+            'payload': str(loid_state_value)
+        })
+        sensors_data.append({
+            'topic': topic('supply_voltage/state'),
+            'payload': str(supply_voltage_value)
+        })
+        sensors_data.append({
+            'topic': topic('bias_current/state'),
+            'payload': str(bias_current_value)
+        })
+        sensors_data.append({
+            'topic': topic('temp/state'),
+            'payload': str(temp_value)
+        })
 
-    time.sleep(.1)
+        time.sleep(.1)
 
     alerts_page_content = get_gpon_alerts_page()
-    parse_gpon_alerts_page(alerts_page_content)
+    if alerts_page_content:
+        parse_gpon_alerts_page(alerts_page_content)
 
-    sensors_data.append({
-        'topic': topic('PonSymPerAlarm/state'),
-        'payload': str(PonSymPerAlarm_value)
-    })
-    sensors_data.append({
-        'topic': topic('PonFrameAlarm/state'),
-        'payload': str(PonFrameAlarm_value)
-    })
-    sensors_data.append({
-        'topic': topic('PonFraPerAlarm/state'),
-        'payload': str(PonFraPerAlarm_value)
-    })
-    sensors_data.append({
-        'topic': topic('PonSecSumAlarm/state'),
-        'payload': str(PonSecSumAlarm_value)
-    })
-    sensors_data.append({
-        'topic': topic('PonDygaspAlarm/state'),
-        'payload': str(PonDygaspAlarm_value)
-    })
-    sensors_data.append({
-        'topic': topic('PonLinkAlarm/state'),
-        'payload': str(PonLinkAlarm_value)
-    })
-    sensors_data.append({
-        'topic': topic('PonCirEveAlarm/state'),
-        'payload': str(PonCirEveAlarm_value)
-    })
+        sensors_data.append({
+            'topic': topic('PonSymPerAlarm/state'),
+            'payload': str(PonSymPerAlarm_value)
+        })
+        sensors_data.append({
+            'topic': topic('PonFrameAlarm/state'),
+            'payload': str(PonFrameAlarm_value)
+        })
+        sensors_data.append({
+            'topic': topic('PonFraPerAlarm/state'),
+            'payload': str(PonFraPerAlarm_value)
+        })
+        sensors_data.append({
+            'topic': topic('PonSecSumAlarm/state'),
+            'payload': str(PonSecSumAlarm_value)
+        })
+        sensors_data.append({
+            'topic': topic('PonDygaspAlarm/state'),
+            'payload': str(PonDygaspAlarm_value)
+        })
+        sensors_data.append({
+            'topic': topic('PonLinkAlarm/state'),
+            'payload': str(PonLinkAlarm_value)
+        })
+        sensors_data.append({
+            'topic': topic('PonCirEveAlarm/state'),
+            'payload': str(PonCirEveAlarm_value)
+        })
 
-    publish_multiple(sensors_data)
+        publish_multiple(sensors_data)
 
-    time.sleep(.1)
+        time.sleep(.1)
