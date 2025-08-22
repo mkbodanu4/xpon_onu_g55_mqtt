@@ -92,19 +92,20 @@ def session_request(method, url, data=None, error_message="Unknown error"):
         if response.status_code != 200:
             publish_single(topic('parser_status/state'), error_message + " " + str(response.status_code))
             print(method + " request to page " + url + " has status code " + str(response.status_code))
-            return False
+            return None
 
         return response
     except Exception as e:
-        publish_single(topic('parser_status/state'), "Can't access to ONU via network: " + str(e))
-        return False
+        publish_single(topic('parser_status/state'), "Network error")
+        print("Can't access to ONU via network: " + str(e))
+        return None
 
 
 def get_gpon_status_page():
     gpon_status_url = "http://" + configuration['onu']['ip'] + "/getpage.gch?pid=1002&nextpage=pon_status_link_info_t.gch"
 
     response = session_request('GET', url=gpon_status_url, error_message='Status Page Error')
-    if response == False:
+    if response is None:
         return False
 
     is_logged = re.compile(r'logout\_redirect\(\)\;')
@@ -120,7 +121,7 @@ def get_gpon_alerts_page():
     gpon_alerts_url = "http://" + configuration['onu']['ip'] + "/getpage.gch?pid=1002&nextpage=epon_status_alarm_t.gch"
 
     response = session_request('GET', url=gpon_alerts_url, error_message="Alerts Page Error")
-    if response == False:
+    if response is None:
         return False
 
     return response.text
@@ -239,7 +240,7 @@ def authenticate():
     login_form_url = "http://" + configuration['onu']['ip'] + "/"
 
     login_form_response = session_request('GET', url=login_form_url, error_message="Authorization Error")
-    if login_form_response == False:
+    if login_form_response is None:
         return False
 
     if not login_token_re.search(login_form_response.text):
@@ -263,7 +264,7 @@ def authenticate():
         'Username': configuration['onu']['username'],
         'Password': configuration['onu']['password'],
     }, error_message="Authorization Error")
-    if login_request_response == False:
+    if login_request_response is None:
         return False
 
     if not login_valid.search(login_request_response.text):
@@ -404,7 +405,7 @@ while True:
     status_page_content = get_gpon_status_page()
     if not status_page_content:
         publish_single(topic('parser_status/state'), 'Authorizing')
-        print("Authorizing")
+        print("No response, maybe need authorizing")
         if authenticate():
             sensors_data.append({
                 'topic': topic('auth_token/state'),
@@ -415,7 +416,6 @@ while True:
         else:
             publish_single(topic('parser_status/state'), "Can't authenticate")
             print("Can't authenticate")
-            exit()
 
     if status_page_content:
         parse_gpon_status_page(status_page_content)
